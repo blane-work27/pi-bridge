@@ -9,5 +9,8 @@
   "extensions": [
     "-builtin:llama.cpp"
   ],
-  "lastChangelogVersion": "1.4.0"
+  "lastChangelogVersion": "1.4.0",
+  "defaultTools": [
+    "+codemode"
+  ]
 }

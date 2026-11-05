@@ -31,10 +31,15 @@ pi ──> Bifrost (127.0.0.1:8080) ──┬──> gateway
 | `bifrost/routing.example.json` | A template for `bifrost/routing.json`. It uses only Claude subscription models. |
 | `bin/render-bifrost-config.py` | Makes `bifrost/config.json` and `models.json` from `bifrost/routing.json`. |
 | `bridge/server.ts` | The server that connects Bifrost to Claude Code. |
+| `extensions/jank/` | The jank extension. It adds worker, merge, and research tools to pi. |
+| `skills/jank/`, `skills/jank-research/` | The pi skills that tell the orchestrator how to use jank. |
+| `extensions/git-guard/` | Blocks `git commit` and `git push` in the pi `bash` tool. Adds the `git_commit` and `git_push` tools. |
+| `skills/commit/` | The pi skill that reviews changes and writes a commit message with you. |
+| `git-identities.json` | The commit email for each git host. You make this file from `git-identities.example.json`. Do not commit it. |
 | `herdr/Containerfile` | Builds the Herdr app from source on Rocky Linux 9. |
 | `bin/pi-bridge` | Launcher. It sets `PI_CODING_AGENT_DIR` to this directory and starts pi. |
 | `SYSTEM.md` | The pi system prompt for this directory. |
-| `settings.json` | pi settings. The default model is `bifrost/claude-sub/claude-opus-5-5`. |
+| `settings.json` | pi settings. The default model is `bifrost/claude-sub/claude-opus-5-5`. The `codemode` tool is on. |
 | `.env` | Settings for this machine: the pi binary and the gateway files. You make this file from `.env.example`. Do not commit it. |
 | `.env.example` | A template for `.env`. |
 | `bifrost/.env`, `bridge/.env` | Secrets. `install.sh` makes them with mode 600. Do not commit them. |
@@ -150,6 +155,79 @@ To change the Herdr app version:
 3. In the `.github/workflows/release.yml` file of that tag, find `RUST_TOOLCHAIN` and `ZIG_VERSION`. Set `HERDR_RUST_VERSION` and `HERDR_ZIG_VERSION` in `install.sh` to the same values.
 4. If the Zig version changed, set `HERDR_ZIG_SHA256` to the `x86_64-linux` `shasum` for that version in https://ziglang.org/download/index.json.
 5. Run `install.sh` again.
+
+## Use jank
+
+jank runs many worker agents in parallel. Claude is the orchestrator. The workers use gateway models through Bifrost.
+
+```text
+pi (Claude through sub-bridge) ──> codemode script ──> jank_worker × N ──> pi worker ──> Bifrost ──> gateway
+```
+
+- Claude writes a `codemode` script. The script calls `jank_worker` for each part of the task.
+- Each worker is a separate pi process on a gateway model. A worker cannot use a `claude-sub` model.
+- A worker with a JSON Schema must return data that matches the schema. If the data does not match, jank tries the worker again, up to 3 times.
+- At most 4 workers run at the same time. To change this limit, set `JANK_CONCURRENCY` before you start pi.
+- Claude Code never sends a request to the gateway. Claude only reads the results of the workers.
+
+To use jank:
+
+1. Start pi with `pi-bridge`.
+2. Type `/skill:jank`, and then describe the task. You can also ask for "a jank workflow" in your prompt.
+
+### Workers that change files
+
+A worker with `isolation: "worktree"` works in its own git worktree. It does not change your working tree.
+
+1. jank makes a snapshot of your working tree. The snapshot includes changed and untracked files. It does not change a branch, the index, or the stash.
+2. Each worker gets a worktree in `~/.local/state/jank/wt/` from the snapshot.
+3. When the worker stops, jank saves its changes as a patch in `~/.local/state/jank/patches/`, and removes the worktree.
+4. `jank_merge` combines the patches in a separate worktree. If two patches conflict, a worker can resolve the conflict there.
+5. `jank_apply` applies the combined patch to your working tree as unstaged changes.
+
+jank never commits and never stages changes in your working tree. You examine the changes and commit them.
+
+### Research in the background
+
+`jank_research` answers one question from primary sources while you continue to work. It is made for a grilling session, for example with the `grill-with-docs` skill.
+
+1. In the session, ask for research on one narrow question, or let the grilling skill ask for it.
+2. The session writes a short brief and starts the research. The research does not get the conversation.
+3. A separate orchestrator (Claude) plans the research. Gateway-model workers read the sources and check each claim.
+4. The result is one Markdown file in `~/.local/state/jank/research/<repo>/`. Each claim in the file has a link to its source.
+5. When the research is done, the session gets a message with the answer and the path of the file.
+
+To see the state of research runs, ask for `jank_research_status`. The files for each run are in `~/.local/state/jank/research/runs/<id>/`. The file `progress.log` shows each step.
+
+## Commit with pi
+
+pi cannot run `git commit` or `git push` in its `bash` tool. pi commits only with the `git_commit` tool and pushes only with the `git_push` tool.
+
+- The author and the committer are your global `user.name` and the email for the host of the push remote. The email comes from `git-identities.json`. A local `user.email` in a repository is not used.
+- If the host is not in `git-identities.json`, the tools do not commit or push.
+- The tools refuse a message that has a `Co-authored-by` trailer, a "Generated with" line, or other AI attribution.
+- Before each commit and each push, pi shows a dialog. The commit or the push occurs only if you accept it.
+- `git_push` examines each commit that it will push. If a commit has a different author or committer, or AI attribution in its message, `git_push` does not push. `git_push` never forces a push.
+
+To set up the identities:
+
+1. Copy the template:
+
+   ```bash
+   cp git-identities.example.json git-identities.json
+   ```
+
+2. In `git-identities.json`, set one email for each git host. The host is the host name in the remote URL, for example `github.com`.
+
+To commit:
+
+1. In pi, type `/skill:commit`, or ask pi to commit.
+2. pi examines the changes and asks you questions about them.
+3. pi shows a draft message. Tell pi what to change.
+4. When the message is correct, accept the commit in the dialog.
+5. To push, ask pi to push, and then accept the push in the dialog.
+
+You can still run `git commit` and `git push` yourself in a terminal, or with `!` in pi.
 
 ## Change the routing
 

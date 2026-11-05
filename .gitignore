@@ -12,3 +12,4 @@ bin/rg
 models-store.json
 bifrost/routing.json
 bifrost/checks
+git-identities.json
