@@ -31,12 +31,14 @@ pi ──> Bifrost (127.0.0.1:8080) ──┬──> gateway
 | `bifrost/routing.example.json` | A template for `bifrost/routing.json`. It uses only Claude subscription models. |
 | `bin/render-bifrost-config.py` | Makes `bifrost/config.json` and `models.json` from `bifrost/routing.json`. |
 | `bridge/server.ts` | The server that connects Bifrost to Claude Code. |
+| `herdr/Containerfile` | Builds the Herdr app from source on Rocky Linux 9. |
 | `bin/pi-bridge` | Launcher. It sets `PI_CODING_AGENT_DIR` to this directory and starts pi. |
 | `SYSTEM.md` | The pi system prompt for this directory. |
 | `settings.json` | pi settings. The default model is `bifrost/claude-sub/claude-opus-5-5`. |
 | `.env` | Settings for this machine: the pi binary and the gateway files. You make this file from `.env.example`. Do not commit it. |
 | `.env.example` | A template for `.env`. |
 | `bifrost/.env`, `bridge/.env` | Secrets. `install.sh` makes them with mode 600. Do not commit them. |
+| `bifrost/checks` | The models that passed the installer test. `install.sh` makes this file. Do not commit it. |
 
 ## Prerequisites
 
@@ -89,10 +91,18 @@ The installer does these steps:
 2. It makes the Docker network `pi-llm`.
 3. It makes `bifrost/config.json` and `models.json` from `bifrost/routing.json`.
 4. It sets pi to use the `bifrost` provider. It removes `pi-claude-bridge` if that package is installed.
-5. It installs and starts the systemd user service `sub-bridge.service`.
-6. It starts the `ollama-pi` container and downloads the tier model.
-7. It starts the `bifrost-pi` container.
-8. It sends a test request to each model and one test prompt through pi.
+5. It builds the Herdr app in a container and installs it. It installs herdr-core if it is not installed.
+6. It installs and starts the systemd user service `sub-bridge.service`.
+7. It starts the `ollama-pi` container and downloads the tier model.
+8. It starts the `bifrost-pi` container.
+9. It sends a test request to each model and one test prompt through pi.
+
+The installer records each test that passes in `bifrost/checks`.
+On the next run, it skips a test that passed if the configuration for that model did not change.
+It always tests again a model that failed.
+If a tier model or a fallback model fails, the installer stops. If a model in `models` fails, the installer shows a warning and continues.
+To test all models again, run `install.sh --recheck`.
+To skip all tests, run `install.sh --no-test`.
 
 ## Use pi
 
@@ -114,6 +124,32 @@ The installer does these steps:
 3. To pick a model, type `/model` in pi.
 4. Select `bifrost/auto` to let Bifrost pick the model for each request.
 5. Select a `bifrost/claude-sub/...` model to always use your Claude subscription.
+
+## Use Herdr
+
+Herdr is a desktop app for terminals and coding agents. Its sidebar shows the state of each agent: working, blocked, done, or idle.
+herdr-core runs the terminals. The terminals continue to run when you close the Herdr window.
+The Linux app needs a desktop session and a Vulkan driver.
+
+The Herdr release for Linux needs glibc 2.35. RHEL 9 has glibc 2.34. For this reason, the installer builds the app from source.
+The build runs in a Rocky Linux 9 container, so the app uses the glibc of RHEL 9.
+The installer copies the app into `~/.local/share/herdr-app`. It installs herdr-core from the Herdr release, because herdr-core does not use the system glibc.
+The installer builds the app again only when the pinned versions in `install.sh` change.
+An app built from source does not update itself.
+
+1. Open Herdr from your app launcher, or run `herdr-app`.
+2. Open a space in your project directory.
+3. In a terminal in that space, run `pi-bridge`.
+
+pi reports its state to Herdr through the terminal. You do not need a Herdr integration for pi.
+
+To change the Herdr app version:
+
+1. Find the tag on https://github.com/herdrdev/herdr-app/tags.
+2. In `install.sh`, set `HERDR_APP_VERSION` to the tag without the `v`, and set `HERDR_APP_COMMIT` to the commit of the tag.
+3. In the `.github/workflows/release.yml` file of that tag, find `RUST_TOOLCHAIN` and `ZIG_VERSION`. Set `HERDR_RUST_VERSION` and `HERDR_ZIG_VERSION` in `install.sh` to the same values.
+4. If the Zig version changed, set `HERDR_ZIG_SHA256` to the `x86_64-linux` `shasum` for that version in https://ziglang.org/download/index.json.
+5. Run `install.sh` again.
 
 ## Change the routing
 

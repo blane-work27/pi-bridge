@@ -1,0 +1,40 @@
+FROM quay.io/rockylinux/rockylinux:9.8@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f
+
+ARG RUSTUP_VERSION
+ARG RUSTUP_SHA256
+ARG RUST_VERSION
+ARG ZIG_VERSION
+ARG ZIG_SHA256
+ARG HERDR_APP_VERSION
+ARG HERDR_APP_COMMIT
+
+RUN dnf -y install dnf-plugins-core \
+ && dnf config-manager --set-enabled crb \
+ && dnf -y install git gcc gcc-c++ make xz tar pkgconf-pkg-config clang clang-devel \
+      libxcb-devel libxkbcommon-devel libxkbcommon-x11-devel wayland-devel \
+      vulkan-loader-devel fontconfig-devel freetype-devel \
+ && dnf clean all
+
+RUN curl -fsSLo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" \
+ && echo "${RUSTUP_SHA256}  /tmp/rustup-init" | sha256sum -c - \
+ && chmod +x /tmp/rustup-init \
+ && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain "${RUST_VERSION}" \
+ && rm /tmp/rustup-init
+
+RUN curl -fsSLo /tmp/zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" \
+ && echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | sha256sum -c - \
+ && mkdir /opt/zig \
+ && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1 \
+ && rm /tmp/zig.tar.xz
+
+ENV PATH=/root/.cargo/bin:/opt/zig:$PATH
+
+RUN git clone --depth 1 --branch "v${HERDR_APP_VERSION}" --recurse-submodules --shallow-submodules https://github.com/herdrdev/herdr-app /src \
+ && test "$(git -C /src rev-parse HEAD)" = "${HERDR_APP_COMMIT}"
+
+WORKDIR /src
+RUN cargo build --release --locked \
+ && mkdir /out \
+ && cp target/release/herdr-app /out/herdr-app \
+ && cp assets/icons/herdr-ui-icon-clean.svg /out/herdr-app.svg \
+ && cp LICENSE THIRD-PARTY-NOTICES /out/
