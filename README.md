@@ -27,6 +27,7 @@ pi ──> Bifrost (127.0.0.1:8080) ──┬──> gateway
 | File | Purpose |
 |---|---|
 | `install.sh` | Sets up and starts everything. You can run it again at any time. |
+| `install.d/rhel9.sh`, `install.d/macos.sh` | The steps that are different on RHEL 9 and on macOS. |
 | `bifrost/routing.json` | The model for each tier, the fallback model, and the extra models that pi shows. You edit this file. Do not commit it. |
 | `bifrost/routing.example.json` | A template for `bifrost/routing.json`. It uses only Claude subscription models. |
 | `bin/render-bifrost-config.py` | Makes `bifrost/config.json` and `models.json` from `bifrost/routing.json`. |
@@ -47,27 +48,52 @@ pi ──> Bifrost (127.0.0.1:8080) ──┬──> gateway
 
 ## Prerequisites
 
-1. Make sure that Docker runs and that your user can use it:
+This setup runs on two kinds of workstation: RHEL 9 (x86_64) and macOS (Apple silicon). The installer finds the kind of workstation and uses `install.d/rhel9.sh` or `install.d/macos.sh`.
+
+### RHEL 9
+
+1. Make sure that Docker Engine runs and that your user can use it:
 
    ```bash
    docker ps
    ```
 
-2. Make sure that Claude Code is logged in with your subscription:
+2. Make sure that `systemctl --user status` works. The installer runs sub-bridge as a systemd user service.
+
+### macOS
+
+Docker Desktop is not used. The installer stops if the `docker` CLI connects to Docker Desktop.
+
+1. Install Rancher Desktop from https://rancherdesktop.io.
+2. In Rancher Desktop, open **Preferences** > **Container Engine**, and select **dockerd (moby)**.
+3. If you do not use Kubernetes, open **Preferences** > **Kubernetes**, and clear **Enable Kubernetes**.
+4. Make sure that the `docker` CLI from Rancher Desktop is in your `PATH`, and that it connects:
+
+   ```bash
+   docker ps
+   ```
+
+5. Install Node.js 22.18 or later, for example with `brew install node`.
+6. Make sure that `python3` works. If it does not, install the Xcode command line tools with `xcode-select --install`.
+7. To let the installer install Herdr, install Homebrew from https://brew.sh. Homebrew is optional.
+
+### Both workstations
+
+1. Make sure that Claude Code is logged in with your subscription:
 
    ```bash
    claude auth status
    ```
 
-3. Make sure that `authMethod` is `claude.ai`. If it is not, run `claude auth login`.
-4. Make sure that `node --version` shows 22.18 or later.
-5. Copy the template for the machine settings:
+2. Make sure that `authMethod` is `claude.ai`. If it is not, run `claude auth login`.
+3. Make sure that `node --version` shows 22.18 or later.
+4. Copy the template for the machine settings:
 
    ```bash
    cp .env.example .env
    ```
 
-6. In `.env`, set each value:
+5. In `.env`, set each value:
 
    | Variable | Value |
    |---|---|
@@ -77,7 +103,7 @@ pi ──> Bifrost (127.0.0.1:8080) ──┬──> gateway
    | `GATEWAY_CA_FILE` | The path to the CA certificate bundle for the gateway. Leave it empty if the gateway uses a public certificate. |
    | `GATEWAY_KEY_HEADER` | The name of an extra request header that carries the gateway key, if the gateway needs one. Leave it empty if the gateway reads the key only from `Authorization: Bearer`. |
 
-7. If `bifrost/routing.json` uses no gateway models, you can leave the `GATEWAY_` values empty.
+6. If `bifrost/routing.json` uses no gateway models, you can leave the `GATEWAY_` values empty.
 
 ## Install
 
@@ -96,11 +122,18 @@ The installer does these steps:
 2. It makes the Docker network `pi-llm`.
 3. It makes `bifrost/config.json` and `models.json` from `bifrost/routing.json`.
 4. It sets pi to use the `bifrost` provider. It removes `pi-claude-bridge` if that package is installed.
-5. It builds the Herdr app in a container and installs it. It installs herdr-core if it is not installed.
-6. It installs and starts the systemd user service `sub-bridge.service`.
+5. It installs the Herdr app. On RHEL 9, it builds the app in a container. On macOS, it installs the app with Homebrew.
+6. It starts sub-bridge. On RHEL 9, sub-bridge is the systemd user service `sub-bridge.service`. On macOS, sub-bridge is the launchd agent `dev.pi-config.sub-bridge`.
 7. It starts the `ollama-pi` container and downloads the tier model.
-8. It starts the `bifrost-pi` container.
+8. It starts the `bifrost-pi` container, and makes sure that Bifrost can connect to sub-bridge.
 9. It sends a test request to each model and one test prompt through pi.
+
+Containers connect to sub-bridge in a different way on each workstation:
+
+| Workstation | sub-bridge listens on | Bifrost connects to |
+|---|---|---|
+| RHEL 9 | The gateway address of the Docker network `pi-llm` | The same address |
+| macOS | `127.0.0.1` | `host.docker.internal`, which Rancher Desktop sends to the Mac |
 
 The installer records each test that passes in `bifrost/checks`.
 On the next run, it skips a test that passed if the configuration for that model did not change.
@@ -134,25 +167,35 @@ To skip all tests, run `install.sh --no-test`.
 
 Herdr is a desktop app for terminals and coding agents. Its sidebar shows the state of each agent: working, blocked, done, or idle.
 herdr-core runs the terminals. The terminals continue to run when you close the Herdr window.
-The Linux app needs a desktop session and a Vulkan driver.
 
+### RHEL 9
+
+The Linux app needs a desktop session and a Vulkan driver.
 The Herdr release for Linux needs glibc 2.35. RHEL 9 has glibc 2.34. For this reason, the installer builds the app from source.
 The build runs in a Rocky Linux 9 container, so the app uses the glibc of RHEL 9.
 The installer copies the app into `~/.local/share/herdr-app`. It installs herdr-core from the Herdr release, because herdr-core does not use the system glibc.
-The installer builds the app again only when the pinned versions in `install.sh` change.
+The installer builds the app again only when the pinned versions in `install.d/rhel9.sh` change.
 An app built from source does not update itself.
 
-1. Open Herdr from your app launcher, or run `herdr-app`.
+### macOS
+
+The installer installs the Herdr release with `brew install --cask herdr-app`, if the app is not installed.
+If Homebrew is not installed, download https://releases.herdr.dev/app/Herdr.dmg, and drag Herdr to Applications.
+The app installs herdr-core when you open it. The app updates itself and herdr-core.
+
+### Start Herdr
+
+1. Open Herdr from your app launcher. On RHEL 9, you can also run `herdr-app`.
 2. Open a space in your project directory.
 3. In a terminal in that space, run `pi-bridge`.
 
 pi reports its state to Herdr through the terminal. You do not need a Herdr integration for pi.
 
-To change the Herdr app version:
+To change the Herdr app version on RHEL 9:
 
 1. Find the tag on https://github.com/herdrdev/herdr-app/tags.
-2. In `install.sh`, set `HERDR_APP_VERSION` to the tag without the `v`, and set `HERDR_APP_COMMIT` to the commit of the tag.
-3. In the `.github/workflows/release.yml` file of that tag, find `RUST_TOOLCHAIN` and `ZIG_VERSION`. Set `HERDR_RUST_VERSION` and `HERDR_ZIG_VERSION` in `install.sh` to the same values.
+2. In `install.sh`, set `HERDR_APP_VERSION` to the tag without the `v`. In `install.d/rhel9.sh`, set `HERDR_APP_COMMIT` to the commit of the tag.
+3. In the `.github/workflows/release.yml` file of that tag, find `RUST_TOOLCHAIN` and `ZIG_VERSION`. Set `HERDR_RUST_VERSION` and `HERDR_ZIG_VERSION` in `install.d/rhel9.sh` to the same values.
 4. If the Zig version changed, set `HERDR_ZIG_SHA256` to the `x86_64-linux` `shasum` for that version in https://ziglang.org/download/index.json.
 5. Run `install.sh` again.
 
@@ -254,13 +297,15 @@ The limits of `bifrost/auto` are the smallest context window and the smallest ou
 - `sub-bridge` stops a request when Claude Code reports that the request uses Extra Usage. You are not billed for Extra Usage through this setup.
 - Anthropic counts a request against your plan only when the system prompt looks like ordinary Claude Code use. `sub-bridge` keeps Claude Code's own system prompt and adds `SYSTEM.md` after it. Do not replace `SYSTEM.md` with a prompt from another tool.
 - A conversation on a `claude-sub` model keeps one Claude Code process open while pi runs tools. If pi does not send a tool result for 30 minutes, `sub-bridge` closes the process. The next request starts a new process with the history as text.
-- `sub-bridge.service` is a systemd user service. It runs only while you are logged in, unless an administrator turns on lingering for your user.
+- On RHEL 9, `sub-bridge.service` is a systemd user service. It runs only while you are logged in, unless an administrator turns on lingering for your user.
+- On macOS, the launchd agent runs only while you are logged in.
 
 ## Logs
 
 | Component | Command |
 |---|---|
-| sub-bridge | `journalctl --user -u sub-bridge.service -f` |
+| sub-bridge on RHEL 9 | `journalctl --user -u sub-bridge.service -f` |
+| sub-bridge on macOS | `tail -f ~/Library/Logs/sub-bridge.log` |
 | Bifrost | `docker logs -f bifrost-pi` |
 | Ollama | `docker logs -f ollama-pi` |
 
