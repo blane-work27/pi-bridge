@@ -1,0 +1,13 @@
+{
+  "theme": "dark",
+  "defaultProvider": "bifrost",
+  "defaultModel": "claude-sub/claude-opus-5-5",
+  "defaultThinkingLevel": "medium",
+  "enableInstallTelemetry": false,
+  "enableAnalytics": false,
+  "defaultProjectTrust": "never",
+  "extensions": [
+    "-builtin:llama.cpp"
+  ],
+  "lastChangelogVersion": "1.4.0"
+}

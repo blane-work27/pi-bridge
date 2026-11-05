@@ -1,0 +1,11 @@
+{
+  "name": "sub-bridge",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node server.ts"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "classifier": {
+    "model": "tev1:0.8b",
+    "timeout": "5s"
+  },
+  "tiers": {
+    "COMPLEX": "claude-sub/claude-opus-5-5",
+    "MEDIUM": "claude-sub/claude-sonnet-5-5",
+    "SIMPLE": "claude-sub/claude-haiku-5-5"
+  },
+  "fallback": "claude-sub/claude-opus-5-5",
+  "models": [
+    "claude-sub/claude-opus-5-5",
+    "claude-sub/claude-sonnet-5-5",
+    "claude-sub/claude-haiku-5-5"
+  ]
+}
