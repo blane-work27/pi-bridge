@@ -114,9 +114,10 @@ def main():
     classifier = routing.get("classifier") or {}
     targets = {t: parse_target(tiers[t], f"tiers.{t}") for t in TIERS}
     fallback = parse_target(routing.get("fallback", "claude-sub/claude-opus-5-5"), "fallback")
+    chain = [parse_target(m, "fallbacks") for m in routing.get("fallbacks", [])] or [fallback]
     listed = [parse_target(m, "models") for m in routing.get("models", [])]
     every = []
-    for pm in [*targets.values(), fallback, *listed]:
+    for pm in [*targets.values(), fallback, *chain, *listed]:
         if pm not in every:
             every.append(pm)
 
@@ -201,8 +202,9 @@ def main():
             "scope": "global",
             "priority": 10 * (i + 1),
         }
-        if (provider, model) != fallback:
-            rule["fallbacks"] = [f"{fallback[0]}/{fallback[1]}"]
+        rest = [f"{p}/{m}" for p, m in chain if (p, m) != (provider, model)]
+        if rest:
+            rule["fallbacks"] = rest
         rules.append(rule)
     rules.append({
         "id": "auto-unclassified",

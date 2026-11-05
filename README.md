@@ -123,6 +123,18 @@ The installer does these steps:
 
 To add OpenAI models, export `OPENAI_API_KEY` before you run `install.sh`, and use `openai/<model>` in `bifrost/routing.json`.
 
+The keys in `bifrost/routing.json` are:
+
+| Key | Meaning |
+|---|---|
+| `tiers` | The model for each tier: `SIMPLE`, `MEDIUM`, and `COMPLEX`. |
+| `fallbacks` | The models that Bifrost tries, in this order, when a tier model fails. Bifrost skips the tier model itself. |
+| `fallback` | The model for a request that the classifier cannot sort into a tier. If `fallbacks` is missing, this model is also the only fallback. |
+| `models` | The extra models that pi shows in `/model`. These models do not change the limits of `bifrost/auto`. |
+| `classifier` | The tier model in Ollama and its timeout. |
+
+The limits of `bifrost/auto` are the smallest context window and the smallest output limit of the tier models and `fallback`.
+
 ## Limits and safety
 
 - `sub-bridge` stops a request when Claude Code reports that the request uses Extra Usage. You are not billed for Extra Usage through this setup.
