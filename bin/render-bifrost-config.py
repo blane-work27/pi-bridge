@@ -21,6 +21,8 @@ def fail(msg):
 def parse_target(value, where):
     if not isinstance(value, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]*/[A-Za-z0-9._:-]+", value):
         fail(f"{where}: '{value}' is not '<provider>/<model>'")
+    if value.startswith("icr-claude-"):
+        fail(f"{where}: '{value}' is a gateway Claude model, which is not elected for this program. Use claude-sub/* instead.")
     return tuple(value.split("/", 1))
 
 
