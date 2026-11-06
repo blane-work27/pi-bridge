@@ -80,6 +80,18 @@ EOF
   rm -f "$bin_dir/herdr"
 }
 
+os_install_search_tools() {
+  local missing=""
+  command -v rg >/dev/null 2>&1 || missing="$missing ripgrep"
+  command -v fd >/dev/null 2>&1 || missing="$missing fd-find"
+  if [ -z "$missing" ]; then
+    echo "ripgrep and fd are already installed."
+  else
+    echo "WARNING: pi needs$missing. They are in EPEL. Install them with:"
+    echo "         sudo dnf install -y epel-release && sudo dnf install -y$missing"
+  fi
+}
+
 os_start_sub_bridge() {
   if [ -f "$UNIT_DIR/$OLD_UNIT" ]; then
     systemctl --user disable --now "$OLD_UNIT" >/dev/null 2>&1 || true

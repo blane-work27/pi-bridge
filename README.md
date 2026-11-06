@@ -151,10 +151,10 @@ To skip all tests, run `install.sh --no-test`.
    pi-bridge
    ```
 
-   The command `pi-bridge` is a symlink in `~/.local/bin` to `bin/pi-bridge`. If the symlink is missing, make it:
+   The command `pi-bridge` is a symlink in `~/.local/bin` to `bin/pi-bridge`. `install.sh` makes it (set `PI_BRIDGE_LINK_DIR` in `.env` to use another directory). To make it by hand:
 
    ```bash
-   ln -s ~/working/personal/pi-config/bin/pi-bridge ~/.local/bin/pi-bridge
+   ln -sfn "$PWD/bin/pi-bridge" ~/.local/bin/pi-bridge   # run from the repo root
    ```
 
    The command `pi` still starts your default pi setup in `~/.pi/agent`. That setup does not use Bifrost.

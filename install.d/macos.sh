@@ -30,6 +30,20 @@ os_install_herdr() {
   fi
 }
 
+os_install_search_tools() {
+  local missing=""
+  command -v rg >/dev/null 2>&1 || missing="$missing ripgrep"
+  command -v fd >/dev/null 2>&1 || missing="$missing fd"
+  if [ -z "$missing" ]; then
+    echo "ripgrep and fd are already installed."
+  elif command -v brew >/dev/null 2>&1; then
+    brew install $missing || die "brew could not install$missing."
+    echo "Installed$missing."
+  else
+    echo "WARNING: pi needs$missing, and Homebrew is not available. Install them, then restart pi."
+  fi
+}
+
 os_start_sub_bridge() {
   mkdir -p "$(dirname "$LAUNCH_PLIST")" "$(dirname "$SUB_BRIDGE_LOG")"
   python3 -I - "$LAUNCH_PLIST" "$LAUNCH_LABEL" "$NODE_BIN" "$SUB_ENV_FILE" "$ROOT/bridge/server.ts" "$SUB_BRIDGE_LOG" "$PATH" "$HOME" <<'EOF'

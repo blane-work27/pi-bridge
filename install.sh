@@ -156,6 +156,23 @@ python3 -I -c 'import json,sys; sys.exit(1 if json.load(open(sys.argv[1])).get("
 chmod 600 "$ROOT/models.json"
 echo "pi uses provider 'bifrost'. The default model is claude-sub/claude-opus-5-5."
 
+step "Link the pi-bridge command"
+LINK_DIR="${PI_BRIDGE_LINK_DIR:-$HOME/.local/bin}"
+LINK="$LINK_DIR/pi-bridge"
+mkdir -p "$LINK_DIR"
+if [ -e "$LINK" ] && [ ! -L "$LINK" ]; then
+  die "$LINK exists and is not a symlink. Move it, then run this script again."
+fi
+ln -sfn "$ROOT/bin/pi-bridge" "$LINK"
+echo "$LINK -> $ROOT/bin/pi-bridge"
+case ":$PATH:" in
+  *":$LINK_DIR:"*) ;;
+  *) echo "WARNING: $LINK_DIR is not in your PATH. Add 'export PATH=\"$LINK_DIR:\$PATH\"' to your shell profile." ;;
+esac
+
+step "Install ripgrep and fd for pi"
+os_install_search_tools
+
 step "Install the Herdr app"
 os_install_herdr
 rm -f "$ROOT/extensions/herdr-agent-state.ts"
@@ -270,7 +287,7 @@ fi
 
 step "Done"
 cat <<EOF
-Start pi:          $ROOT/bin/pi-bridge
+Start pi:          pi-bridge  (symlink at $LINK)
 Pick a model:      /model in pi. bifrost/auto lets Bifrost choose; bifrost/claude-sub/* uses your Claude subscription.
 Bifrost dashboard: http://127.0.0.1:$BIFROST_PORT  (user: admin, password: BIFROST_ADMIN_PASSWORD in bifrost/.env)
 sub-bridge logs:   $SUB_BRIDGE_LOG_COMMAND
