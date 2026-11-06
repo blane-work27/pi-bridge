@@ -60,9 +60,16 @@ plistlib.dump({
     "StandardErrorPath": log,
 }, open(path, "wb"))
 EOF
-  launchctl bootout "gui/$(id -u)/$LAUNCH_LABEL" >/dev/null 2>&1 || true
-  launchctl bootstrap "gui/$(id -u)" "$LAUNCH_PLIST" || die "launchctl could not load $LAUNCH_PLIST."
-  launchctl kickstart -k "gui/$(id -u)/$LAUNCH_LABEL" >/dev/null 2>&1 || true
+  local domain="gui/$(id -u)" i
+  launchctl bootout "$domain/$LAUNCH_LABEL" >/dev/null 2>&1 || true
+  # bootout returns before the old job is gone. Until it is, bootstrap fails with "5: Input/output error".
+  for i in $(seq 10); do launchctl print "$domain/$LAUNCH_LABEL" >/dev/null 2>&1 || break; sleep 1; done
+  for i in 1 2 3 4 5; do
+    launchctl bootstrap "$domain" "$LAUNCH_PLIST" 2>/dev/null && break
+    [ "$i" -lt 5 ] || { launchctl bootstrap "$domain" "$LAUNCH_PLIST"; die "launchctl could not load $LAUNCH_PLIST."; }
+    sleep 2
+  done
+  launchctl kickstart -k "$domain/$LAUNCH_LABEL" >/dev/null 2>&1 || true
 }
 
 os_sub_bridge_log_tail() {
