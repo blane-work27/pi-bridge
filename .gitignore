@@ -13,3 +13,6 @@ models-store.json
 bifrost/routing.json
 bifrost/checks
 git-identities.json
+chainctl
+.DS_Store
+node_modules/
