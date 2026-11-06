@@ -12,7 +12,8 @@ This setup does not change `~/.pi/agent`.
 
 ```text
 pi ──> Bifrost (127.0.0.1:8080) ──┬──> gateway
-                                  └──> sub-bridge (this host) ──> Claude Code ──> Anthropic
+                                  ├──> sub-bridge (this host) ──> Claude Code ──> Anthropic
+                                  └──> /mcp/memory ──> Basic Memory (basic-memory-pi) ──> ~/memory-palace
 ```
 
 - `sub-bridge` is a small HTTP server in `bridge/server.ts`. It has no npm dependencies.
@@ -21,6 +22,7 @@ pi ──> Bifrost (127.0.0.1:8080) ──┬──> gateway
 - Claude Code never talks to the gateway.
 - For the `bifrost/auto` model, Bifrost sorts each request into the tier `SIMPLE`, `MEDIUM`, or `COMPLEX`. A small local model (`tev1:0.8b` in the `ollama-pi` container) does the sorting.
 - `bifrost/routing.json` gives the model for each tier. If this file is missing, `install.sh` makes it from `bifrost/routing.example.json`.
+- Bifrost also serves the memory palace as the MCP server `/mcp/memory`. See [Memory palace](#memory-palace).
 
 ## Files
 
@@ -45,6 +47,7 @@ pi ──> Bifrost (127.0.0.1:8080) ──┬──> gateway
 | `.env.example` | A template for `.env`. |
 | `bifrost/.env`, `bridge/.env` | Secrets. `install.sh` makes them with mode 600. Do not commit them. |
 | `bifrost/checks` | The models that passed the installer test. `install.sh` makes this file. Do not commit it. |
+| `mcp.json` | pi's MCP servers. `install.sh` adds the `memory` server. Do not commit it. |
 
 ## Prerequisites
 
@@ -125,8 +128,9 @@ The installer does these steps:
 5. It installs the Herdr app. On RHEL 9, it builds the app in a container. On macOS, it installs the app with Homebrew.
 6. It starts sub-bridge. On RHEL 9, sub-bridge is the systemd user service `sub-bridge.service`. On macOS, sub-bridge is the launchd agent `dev.pi-config.sub-bridge`.
 7. It starts the `ollama-pi` container and downloads the tier model.
-8. It starts the `bifrost-pi` container, and makes sure that Bifrost can connect to sub-bridge.
-9. It sends a test request to each model and one test prompt through pi.
+8. It starts the `basic-memory-pi` container for the memory palace.
+9. It starts the `bifrost-pi` container, and makes sure that Bifrost can connect to sub-bridge and that pi can reach the memory palace.
+10. It sends a test request to each model and one test prompt through pi.
 
 Containers connect to sub-bridge in a different way on each workstation:
 
@@ -292,6 +296,23 @@ The keys in `bifrost/routing.json` are:
 
 The limits of `bifrost/auto` are the smallest context window and the smallest output limit of the tier models and `fallback`.
 
+## Memory palace
+
+The memory palace is one folder of Markdown notes that every model shares. The default folder is `~/memory-palace`. To use another folder, set `MEMORY_PALACE_DIR` in `.env`.
+
+- The `basic-memory-pi` container runs [Basic Memory](https://github.com/basicmachines-co/basic-memory) on the folder as the project `palace`. Its index and settings are in `~/.local/state/basic-memory-pi`.
+- The container is only on the Docker network `pi-llm`. Basic Memory has no authentication, so only Bifrost connects to it.
+- Bifrost serves it at `http://127.0.0.1:8080/mcp/memory`. Clients need the `pi` virtual key in the `x-bf-vk` header. Bifrost does not add the memory tools to model requests.
+- pi connects to it through `mcp.json`. The tools are `mcp__memory__memory-bm_search`, `mcp__memory__memory-bm_write`, and so on. Call them from `codemode`, and pass `project="palace"`.
+- Claude Code keeps its own memory in `~/.claude/projects/<project>/memory`. To share the palace, make that folder a symlink to `~/memory-palace`.
+- jank workers run with `--no-extensions`, so they do not have the memory tools.
+
+Basic Memory changes notes:
+
+- It adds a `permalink` field to the frontmatter of each note when it indexes the note. This cannot be turned off.
+- Notes that it writes have `title`, `type`, and `permalink` frontmatter.
+- Search is full-text only. Semantic search needs a model download from HuggingFace, which the installer turns off.
+
 ## Limits and safety
 
 - `sub-bridge` stops a request when Claude Code reports that the request uses Extra Usage. You are not billed for Extra Usage through this setup.
@@ -308,5 +329,6 @@ The limits of `bifrost/auto` are the smallest context window and the smallest ou
 | sub-bridge on macOS | `tail -f ~/Library/Logs/sub-bridge.log` |
 | Bifrost | `docker logs -f bifrost-pi` |
 | Ollama | `docker logs -f ollama-pi` |
+| Basic Memory | `docker logs -f basic-memory-pi`, or `~/.local/state/basic-memory-pi/basic-memory.log` |
 
 The Bifrost dashboard is at `http://127.0.0.1:8080`. The user is `admin`. The password is `BIFROST_ADMIN_PASSWORD` in `bifrost/.env`.

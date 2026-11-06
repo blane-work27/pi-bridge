@@ -16,3 +16,6 @@ git-identities.json
 chainctl
 .DS_Store
 node_modules/
+mcp.json
+mcp-auth.json
+mcp.log*

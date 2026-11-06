@@ -23,6 +23,9 @@ os_network() {
   SUB_BIND="$HOST_IP"
   SUB_URL_FOR_CONTAINERS="http://$HOST_IP:$CLAUDE_SUB_PORT"
   SUB_URL_FOR_HOST="http://$HOST_IP:$CLAUDE_SUB_PORT"
+  # Run as your user so the memory files stay yours. ':z' lets SELinux allow the bind mounts.
+  MEMORY_RUN_USER="$(id -u):$(id -g)"
+  MEMORY_MOUNT_OPTS=":z"
 }
 
 os_install_herdr() {

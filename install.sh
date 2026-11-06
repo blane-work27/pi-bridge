@@ -4,11 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 BIFROST_IMAGE="maximhq/bifrost:v2.4.0"
 OLLAMA_IMAGE="ollama/ollama:0.40.14"
+BASIC_MEMORY_IMAGE="ghcr.io/basicmachines-co/basic-memory:1.0.0"
 HERDR_APP_VERSION="0.1.13"
 HERDR_CORE_VERSION="0.1.18"
 NETWORK="pi-llm"
 BIFROST_NAME="bifrost-pi"
 OLLAMA_NAME="ollama-pi"
+BASIC_MEMORY_NAME="basic-memory-pi"
+MEMORY_URL="http://$BASIC_MEMORY_NAME:8000/mcp"
 BIFROST_PORT="${BIFROST_PORT:-8080}"
 CLAUDE_SUB_PORT="${CLAUDE_SUB_PORT:-8090}"
 [ -f "$ROOT/.env" ] || { echo "ERROR: $ROOT/.env is missing. Copy .env.example to .env and set the values." >&2; exit 1; }
@@ -20,6 +23,8 @@ GATEWAY_MENU="${GATEWAY_MENU:-}"
 GATEWAY_KEY_FILE="${GATEWAY_KEY_FILE:-}"
 GATEWAY_CA_FILE="${GATEWAY_CA_FILE:-}"
 GATEWAY_KEY_HEADER="${GATEWAY_KEY_HEADER:-}"
+MEMORY_DIR="${MEMORY_PALACE_DIR:-$HOME/memory-palace}"
+MEMORY_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/basic-memory-pi"
 ENV_FILE="$ROOT/bifrost/.env"
 SUB_ENV_FILE="$ROOT/bridge/.env"
 RUN_TEST=1
@@ -106,7 +111,7 @@ NEEDS="$(python3 -I "$ROOT/bin/render-bifrost-config.py" \
   --routing "$ROOT/bifrost/routing.json" --gateway-menu "$GATEWAY_MENU" --gateway-ca "$GATEWAY_CA_FILE" --gateway-key-header "$GATEWAY_KEY_HEADER" \
   --claude-sub-url "$SUB_URL_FOR_CONTAINERS" \
   --vk-command "!sed -n 's/^BIFROST_VK_PI=//p' $ENV_FILE" \
-  --bifrost-url "http://127.0.0.1:$BIFROST_PORT/anthropic" \
+  --bifrost-url "http://127.0.0.1:$BIFROST_PORT/anthropic" --memory-url "$MEMORY_URL" \
   --out "$ROOT/bifrost/config.json" --pi-models-out "$ROOT/models.json")"
 for name in $NEEDS; do
   case "$name" in
@@ -154,7 +159,23 @@ if os.path.exists(auth):
 EOF
 python3 -I -c 'import json,sys; sys.exit(1 if json.load(open(sys.argv[1])).get("packages") else 0)' "$ROOT/settings.json" && rm -rf "$ROOT/npm"
 chmod 600 "$ROOT/models.json"
+python3 -I - "$ROOT/mcp.json" "http://127.0.0.1:$BIFROST_PORT/mcp/memory" "!sed -n 's/^BIFROST_VK_PI=//p' $ENV_FILE" "$MEMORY_DIR" <<'EOF'
+import json, os, sys
+path, url, vk_command, memory_dir = sys.argv[1:5]
+m = json.load(open(path)) if os.path.exists(path) else {}
+m.setdefault("mcpServers", {})["memory"] = {
+    "url": url,
+    "headers": {"x-bf-vk": vk_command},
+    "description": f"The shared memory palace in {memory_dir}: the user's preferences and project facts, "
+                   "shared by every model. Search it before you start a task, and save durable facts there. "
+                   'Pass project="palace" to every call.',
+}
+json.dump(m, open(path, "w"), indent=2)
+open(path, "a").write("\n")
+EOF
+chmod 600 "$ROOT/mcp.json"
 echo "pi uses provider 'bifrost'. The default model is claude-sub/claude-opus-5-5."
+echo "pi reaches the memory palace through Bifrost at /mcp/memory (mcp.json)."
 
 step "Link the pi-bridge command"
 LINK_DIR="${PI_BRIDGE_LINK_DIR:-$HOME/.local/bin}"
@@ -200,6 +221,26 @@ for _ in $(seq 30); do docker exec "$OLLAMA_NAME" ollama list >/dev/null 2>&1 &&
 docker exec "$OLLAMA_NAME" ollama pull "$CLASSIFIER_MODEL" 2>&1 | tail -1
 echo "Ollama is serving $CLASSIFIER_MODEL."
 
+step "Start Basic Memory for the memory palace"
+mkdir -p "$MEMORY_DIR" "$MEMORY_STATE_DIR"
+# Name the project 'palace'. Basic Memory keeps this file up to date after the first start.
+[ -f "$MEMORY_STATE_DIR/config.json" ] || \
+  echo '{"projects":{"palace":{"path":"/app/data","mode":"local"}},"default_project":"palace"}' > "$MEMORY_STATE_DIR/config.json"
+docker pull -q "$BASIC_MEMORY_IMAGE" >/dev/null
+docker rm -f "$BASIC_MEMORY_NAME" >/dev/null 2>&1 || true
+# Not published to the host: Basic Memory has no auth, so only Bifrost (which checks the virtual key) reaches it.
+# Basic Memory adds a 'permalink' field to the frontmatter of each note it indexes. It cannot be turned off.
+# Semantic search needs a model download from HuggingFace, so search is full-text only.
+docker run -d --name "$BASIC_MEMORY_NAME" --restart unless-stopped --network "$NETWORK" --user "$MEMORY_RUN_USER" \
+  -e HOME=/home/appuser -e BASIC_MEMORY_HOME=/app/data -e BASIC_MEMORY_NO_PROMOS=1 -e BASIC_MEMORY_AUTO_UPDATE=false \
+  -e BASIC_MEMORY_ENSURE_FRONTMATTER_ON_SYNC=false -e BASIC_MEMORY_PERMALINKS_INCLUDE_PROJECT=false \
+  -e BASIC_MEMORY_DEFAULT_SEARCH_TYPE=text -e HF_HUB_OFFLINE=1 \
+  -v "$MEMORY_DIR:/app/data$MEMORY_MOUNT_OPTS" -v "$MEMORY_STATE_DIR:/home/appuser/.basic-memory$MEMORY_MOUNT_OPTS" \
+  "$BASIC_MEMORY_IMAGE" basic-memory mcp --transport streamable-http --host 0.0.0.0 --port 8000 --project palace >/dev/null
+for _ in $(seq 60); do docker logs "$BASIC_MEMORY_NAME" 2>&1 | grep -q 'Uvicorn running' && break; sleep 1; done
+docker logs "$BASIC_MEMORY_NAME" 2>&1 | grep -q 'Uvicorn running' || { docker logs --tail 30 "$BASIC_MEMORY_NAME" >&2; die "Basic Memory did not start."; }
+echo "Basic Memory serves $MEMORY_DIR at $MEMORY_URL (inside network $NETWORK)."
+
 step "Start Bifrost"
 docker pull -q "$BIFROST_IMAGE" >/dev/null
 docker rm -f "$BIFROST_NAME" >/dev/null 2>&1 || true
@@ -224,6 +265,13 @@ if grep -q '"claude-sub"' "$ROOT/bifrost/config.json"; then
     || die "Bifrost cannot reach sub-bridge at $SUB_URL_FOR_CONTAINERS from inside its container."
   echo "Bifrost reaches sub-bridge at $SUB_URL_FOR_CONTAINERS."
 fi
+for _ in $(seq 20); do
+  MCP_OUT="$(cd /tmp && "$ROOT/bin/pi-bridge" mcp list 2>&1 || true)"
+  echo "$MCP_OUT" | grep -q '^memory: connected' && break
+  sleep 2
+done
+echo "$MCP_OUT" | grep -q '^memory: connected' || { echo "$MCP_OUT" >&2; die "pi cannot reach the memory palace through Bifrost."; }
+echo "pi reaches the memory palace: $(echo "$MCP_OUT" | grep '^memory: connected')"
 
 if [ "$RUN_TEST" = 1 ]; then
   step "Call each model through Bifrost"
@@ -291,5 +339,6 @@ Start pi:          pi-bridge  (symlink at $LINK)
 Pick a model:      /model in pi. bifrost/auto lets Bifrost choose; bifrost/claude-sub/* uses your Claude subscription.
 Bifrost dashboard: http://127.0.0.1:$BIFROST_PORT  (user: admin, password: BIFROST_ADMIN_PASSWORD in bifrost/.env)
 sub-bridge logs:   $SUB_BRIDGE_LOG_COMMAND
+Memory palace:     $MEMORY_DIR  (Basic Memory in container $BASIC_MEMORY_NAME; pi tools mcp__memory__*)
 Change routing:    edit bifrost/routing.json, then run $0 again.
 EOF

@@ -104,6 +104,7 @@ def main():
     ap.add_argument("--claude-sub-url", required=True)
     ap.add_argument("--vk-command", required=True)
     ap.add_argument("--bifrost-url", required=True)
+    ap.add_argument("--memory-url", default="")
     ap.add_argument("--out", required=True)
     ap.add_argument("--pi-models-out", required=True)
     args = ap.parse_args()
@@ -260,6 +261,20 @@ def main():
         "config_store": {"enabled": True, "type": "sqlite", "config": {"path": "/app/data/config.db"}},
         "logs_store": {"enabled": True, "type": "sqlite", "config": {"path": "/app/data/logs.db"}},
     }
+    if args.memory_url:
+        config["mcp"] = {
+            "client_configs": [{
+                "name": "memory",
+                "endpoint_slug": "memory",
+                "connection_type": "http",
+                "connection_string": args.memory_url,
+                "auth_type": "none",
+                "tools_to_execute": ["*"],
+                "tools_to_auto_execute": [],
+            }],
+            "tool_manager_config": {"disable_auto_tool_inject": True},
+        }
+        config["governance"]["virtual_keys"][0]["mcp_configs"] = [{"mcp_client_name": "memory", "tools_to_execute": ["*"]}]
     with open(args.out, "w") as f:
         json.dump(config, f, indent=2)
         f.write("\n")

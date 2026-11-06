@@ -16,6 +16,10 @@ os_network() {
   SUB_BIND="127.0.0.1"
   SUB_URL_FOR_CONTAINERS="http://host.docker.internal:$CLAUDE_SUB_PORT"
   SUB_URL_FOR_HOST="http://127.0.0.1:$CLAUDE_SUB_PORT"
+  # Rancher Desktop shares your home folder over virtiofs. Container root writes files as you,
+  # and a non-root user cannot chmod there, which Basic Memory does at startup.
+  MEMORY_RUN_USER="0:0"
+  MEMORY_MOUNT_OPTS=""
 }
 
 os_install_herdr() {
