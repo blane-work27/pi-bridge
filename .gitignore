@@ -19,3 +19,5 @@ node_modules/
 mcp.json
 mcp-auth.json
 mcp.log*
+settings.json
+settings.local.json

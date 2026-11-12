@@ -42,7 +42,10 @@ pi ──> Bifrost (127.0.0.1:8080) ──┬──> gateway
 | `herdr/Containerfile` | Builds the Herdr app from source on Rocky Linux 9. |
 | `bin/pi-bridge` | Launcher. It sets `PI_CODING_AGENT_DIR` to this directory and starts pi. |
 | `SYSTEM.md` | The pi system prompt for this directory. |
-| `settings.json` | pi settings. The default model is `bifrost/claude-sub/claude-opus-5-5`. The `codemode` tool is on. |
+| `settings.base.json` | The shared pi settings. The default model is `bifrost/claude-sub/claude-opus-5-5`. The `codemode`, `grep`, `find`, and `ls` tools are on. |
+| `settings.local.json` | Your own pi settings, added to `settings.base.json`. Optional. Do not commit it. See [Your own pi settings](#your-own-pi-settings). |
+| `settings.json` | The pi settings that pi reads. `install.sh` makes it from `settings.base.json` and `settings.local.json`. Do not edit or commit it. |
+| `bin/render-settings.py` | Makes `settings.json`. |
 | `.env` | Settings for this machine: the pi binary and the gateway files. You make this file from `.env.example`. Do not commit it. |
 | `.env.example` | A template for `.env`. |
 | `bifrost/.env`, `bridge/.env` | Secrets. `install.sh` makes them with mode 600. Do not commit them. |
@@ -124,7 +127,7 @@ The installer does these steps:
 1. It makes the secrets in `bifrost/.env` and `bridge/.env`.
 2. It makes the Docker network `pi-llm`.
 3. It makes `bifrost/config.json` and `models.json` from `bifrost/routing.json`.
-4. It sets pi to use the `bifrost` provider. It removes `pi-claude-bridge` if that package is installed.
+4. It makes `settings.json` from `settings.base.json` and `settings.local.json`, and sets pi to use the `bifrost` provider. It removes `pi-claude-bridge` if that package is installed.
 5. It installs the Herdr app. On RHEL 9, it builds the app in a container. On macOS, it installs the app with Homebrew.
 6. It starts sub-bridge. On RHEL 9, sub-bridge is the systemd user service `sub-bridge.service`. On macOS, sub-bridge is the launchd agent `dev.pi-config.sub-bridge`.
 7. It starts the `ollama-pi` container and downloads the tier model.
@@ -296,6 +299,28 @@ The keys in `bifrost/routing.json` are:
 | `classifier` | The tier model in Ollama and its timeout. |
 
 The limits of `bifrost/auto` are the smallest context window and the smallest output limit of the tier models and `fallback`.
+
+## Your own pi settings
+
+Put settings that only you use, such as extra extensions or skill folders, in `settings.local.json`. For example:
+
+```json
+{
+  "defaultThinkingLevel": "high",
+  "extensions": ["/home/me/pi/extensions/my-extension"],
+  "skills": ["/home/me/pi/skills"]
+}
+```
+
+Then run `install.sh` again. `bin/render-settings.py` makes `settings.json` from `settings.base.json` and your file:
+
+- An object in your file is merged into the same object in the base.
+- A list in your file is added to the end of the same list in the base. Entries that the base already has are skipped.
+- Any other value in your file replaces the base value.
+- `packages` and `lastChangelogVersion` are kept from the old `settings.json`, because pi writes them itself.
+- `install.sh` always sets `defaultProvider` and `defaultModel` afterwards, so those two cannot be changed here.
+
+pi also writes to `settings.json` when you change the model or the thinking level. `install.sh` replaces those changes with the values from the two files.
 
 ## Memory palace
 
