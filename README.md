@@ -280,6 +280,7 @@ You can still run `git commit` and `git push` yourself in a terminal, or with `!
 
 1. Edit `bifrost/routing.json`.
 2. Write each model as `<provider>/<model>`. The provider is `claude-sub`, `openai`, or a provider ID from the gateway menu.
+   Gateway Responses rows, such as `icr-gpt56-terra-think/gpt-5.6-terra-responses`, work too. In `/model`, a gateway model offers the thinking levels its gateway row lists.
 3. Run `install.sh` again.
 
 To add OpenAI models, export `OPENAI_API_KEY` before you run `install.sh`, and use `openai/<model>` in `bifrost/routing.json`.
