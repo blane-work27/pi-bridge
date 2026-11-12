@@ -130,6 +130,7 @@ done
 echo "Wrote bifrost/config.json and models.json."
 
 step "Configure pi to use Bifrost"
+python3 -I "$ROOT/bin/render-settings.py" "$ROOT"
 if PI_CODING_AGENT_DIR="$ROOT" "$PI_BIN" list 2>/dev/null | grep -q 'pi-claude-bridge'; then
   for src in $(python3 -I -c 'import json,sys; print(" ".join(p for p in json.load(open(sys.argv[1])).get("packages",[]) if "pi-claude-bridge" in p))' "$ROOT/settings.json"); do
     PI_CODING_AGENT_DIR="$ROOT" PI_TELEMETRY=0 "$PI_BIN" remove "$src"

@@ -37,12 +37,17 @@ pi ──> Bifrost (127.0.0.1:8080) ──┬──> gateway
 | `extensions/jank/` | The jank extension. It adds worker, merge, and research tools to pi. |
 | `skills/jank/`, `skills/jank-research/` | The pi skills that tell the orchestrator how to use jank. |
 | `extensions/git-guard/` | Blocks `git commit` and `git push` in the pi `bash` tool. Adds the `git_commit` and `git_push` tools. |
+| `extensions/subagent/` | The subagent extension. It adds the `agent`, `agent_send`, `agent_stop`, and `agent_status` tools to pi. See [Use subagents](#use-subagents). |
 | `skills/commit/` | The pi skill that reviews changes and writes a commit message with you. |
 | `git-identities.json` | The commit email for each git host. You make this file from `git-identities.example.json`. Do not commit it. |
+| `test/` | The tests, and the files that run them. See [Run the tests](#run-the-tests). |
 | `herdr/Containerfile` | Builds the Herdr app from source on Rocky Linux 9. |
 | `bin/pi-bridge` | Launcher. It sets `PI_CODING_AGENT_DIR` to this directory and starts pi. |
 | `SYSTEM.md` | The pi system prompt for this directory. |
-| `settings.json` | pi settings. The default model is `bifrost/claude-sub/claude-opus-5-5`. The `codemode` tool is on. |
+| `settings.base.json` | The shared pi settings. The default model is `bifrost/claude-sub/claude-opus-5-5`. The `codemode`, `grep`, `find`, and `ls` tools are on. |
+| `settings.local.json` | Your own pi settings, added to `settings.base.json`. Optional. Do not commit it. See [Your own pi settings](#your-own-pi-settings). |
+| `settings.json` | The pi settings that pi reads. `install.sh` makes it from `settings.base.json` and `settings.local.json`. Do not edit or commit it. |
+| `bin/render-settings.py` | Makes `settings.json`. |
 | `.env` | Settings for this machine: the pi binary and the gateway files. You make this file from `.env.example`. Do not commit it. |
 | `.env.example` | A template for `.env`. |
 | `bifrost/.env`, `bridge/.env` | Secrets. `install.sh` makes them with mode 600. Do not commit them. |
@@ -124,7 +129,7 @@ The installer does these steps:
 1. It makes the secrets in `bifrost/.env` and `bridge/.env`.
 2. It makes the Docker network `pi-llm`.
 3. It makes `bifrost/config.json` and `models.json` from `bifrost/routing.json`.
-4. It sets pi to use the `bifrost` provider. It removes `pi-claude-bridge` if that package is installed.
+4. It makes `settings.json` from `settings.base.json` and `settings.local.json`, and sets pi to use the `bifrost` provider. It removes `pi-claude-bridge` if that package is installed.
 5. It installs the Herdr app. On RHEL 9, it builds the app in a container. On macOS, it installs the app with Homebrew.
 6. It starts sub-bridge. On RHEL 9, sub-bridge is the systemd user service `sub-bridge.service`. On macOS, sub-bridge is the launchd agent `dev.pi-config.sub-bridge`.
 7. It starts the `ollama-pi` container and downloads the tier model.
@@ -246,6 +251,20 @@ jank never commits and never stages changes in your working tree. You examine th
 
 To see the state of research runs, ask for `jank_research_status`. The files for each run are in `~/.local/state/jank/research/runs/<id>/`. The file `progress.log` shows each step.
 
+## Use subagents
+
+A subagent is another pi session that does one task for the orchestrator. The `agent` tool starts it. The subagent works in a fresh context and returns its final message.
+
+- The agent definitions are the Markdown files in `~/.claude/agents`, the same files that Claude Code uses. `general-purpose` and `Explore` are built in.
+- A foreground subagent runs inside pi. Its approval dialogs appear in your pi window.
+- If pi-bridge runs inside Herdr, a background subagent gets its own Herdr terminal. You can watch it and type into it.
+- At most 8 subagents run at the same time. To change this limit, set `SUBAGENT_CONCURRENCY` before you start pi.
+- A subagent with `isolation: "worktree"` works in its own git worktree and branch. It does not change your working tree.
+
+To use subagents, ask pi to delegate a task, for example "Use an Explore subagent to find where the settings are read."
+
+For the agent definitions, the models, the worktrees, and the design, see `extensions/subagent/README.md`.
+
 ## Commit with pi
 
 pi cannot run `git commit` or `git push` in its `bash` tool. pi commits only with the `git_commit` tool and pushes only with the `git_push` tool.
@@ -253,7 +272,8 @@ pi cannot run `git commit` or `git push` in its `bash` tool. pi commits only wit
 - The author and the committer are your global `user.name` and the email for the host of the push remote. The email comes from `git-identities.json`. A local `user.email` in a repository is not used.
 - If the host is not in `git-identities.json`, the tools do not commit or push.
 - The tools refuse a message that has a `Co-authored-by` trailer, a "Generated with" line, or other AI attribution.
-- Before each commit and each push, pi shows a dialog. The commit or the push occurs only if you accept it.
+- Before each commit and each push, pi shows a dialog. The commit or the push occurs only if you accept it. The only exception is below.
+- `git_commit` shows no dialog on a branch named `integration/*`, or on a branch named `agent/*` in a subagent worktree. `git_push` always shows its dialog.
 - `git_push` examines each commit that it will push. If a commit has a different author or committer, or AI attribution in its message, `git_push` does not push. `git_push` never forces a push.
 
 To set up the identities:
@@ -280,6 +300,7 @@ You can still run `git commit` and `git push` yourself in a terminal, or with `!
 
 1. Edit `bifrost/routing.json`.
 2. Write each model as `<provider>/<model>`. The provider is `claude-sub`, `openai`, or a provider ID from the gateway menu.
+   Gateway Responses rows, such as `icr-gpt56-terra-think/gpt-5.6-terra-responses`, work too. In `/model`, a gateway model offers the thinking levels its gateway row lists.
 3. Run `install.sh` again.
 
 To add OpenAI models, export `OPENAI_API_KEY` before you run `install.sh`, and use `openai/<model>` in `bifrost/routing.json`.
@@ -295,6 +316,28 @@ The keys in `bifrost/routing.json` are:
 | `classifier` | The tier model in Ollama and its timeout. |
 
 The limits of `bifrost/auto` are the smallest context window and the smallest output limit of the tier models and `fallback`.
+
+## Your own pi settings
+
+Put settings that only you use, such as extra extensions or skill folders, in `settings.local.json`. For example:
+
+```json
+{
+  "defaultThinkingLevel": "high",
+  "extensions": ["/home/me/pi/extensions/my-extension"],
+  "skills": ["/home/me/pi/skills"]
+}
+```
+
+Then run `install.sh` again. `bin/render-settings.py` makes `settings.json` from `settings.base.json` and your file:
+
+- An object in your file is merged into the same object in the base.
+- A list in your file is added to the end of the same list in the base. Entries that the base already has are skipped.
+- Any other value in your file replaces the base value.
+- `packages` and `lastChangelogVersion` are kept from the old `settings.json`, because pi writes them itself.
+- `install.sh` always sets `defaultProvider` and `defaultModel` afterwards, so those two cannot be changed here.
+
+pi also writes to `settings.json` when you change the model or the thinking level. `install.sh` replaces those changes with the values from the two files.
 
 ## Memory palace
 
@@ -320,6 +363,16 @@ Basic Memory changes notes:
 - A conversation on a `claude-sub` model keeps one Claude Code process open while pi runs tools. If pi does not send a tool result for 30 minutes, `sub-bridge` closes the process. The next request starts a new process with the history as text.
 - On RHEL 9, `sub-bridge.service` is a systemd user service. It runs only while you are logged in, unless an administrator turns on lingering for your user.
 - On macOS, the launchd agent runs only while you are logged in.
+
+## Run the tests
+
+The tests need Node 22.18 or later, and a pi install that has the `@earendil-works` packages. They need no network. From the repo root, run:
+
+```bash
+node --import ./test/register.mjs --test 'test/**/*.test.ts'
+```
+
+`test/register.mjs` finds the pi packages in `~/.local/share/pi-icr/node_modules`. To use another install, set `PI_SDK_DIR`. See `test/README.md`.
 
 ## Logs
 

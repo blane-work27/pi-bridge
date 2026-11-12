@@ -70,14 +70,14 @@ export async function fetchPage(url: string, signal?: AbortSignal): Promise<{ ur
 		redirect: "follow",
 		signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
 		headers: {
-			"user-agent": "jank-fetch/1.0",
+			"user-agent": "pi-bridge-fetch/1.0",
 			accept: "text/html,application/xhtml+xml,text/plain,text/markdown,application/json;q=0.9,*/*;q=0.5",
 		},
 	});
 	const contentType = res.headers.get("content-type") ?? "";
 	if (/^(image|audio|video|font)\//i.test(contentType) || /application\/(pdf|zip|octet-stream)/i.test(contentType)) {
 		await res.body?.cancel();
-		throw new Error(`The response is ${contentType}, which jank_fetch does not read.`);
+		throw new Error(`The response is ${contentType}, which is not text, so it was not read.`);
 	}
 	const reader = res.body?.getReader();
 	const chunks: Uint8Array[] = [];
