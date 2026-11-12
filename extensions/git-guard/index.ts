@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -93,6 +93,20 @@ function repoRoot(cwd: string): string {
 	return r;
 }
 
+// Commits need no dialog on integration/*, and on agent/* inside a subagent worktree.
+function commitIsFree(root: string): boolean {
+	const branch = tryGit(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+	if (!branch) return false;
+	if (branch.startsWith("integration/")) return true;
+	if (!branch.startsWith("agent/")) return false;
+	try {
+		const stateDir = process.env.SUBAGENT_STATE_DIR || join(homedir(), ".local", "state", "subagent");
+		return realpathSync(root).startsWith(realpathSync(join(stateDir, "worktrees")) + sep);
+	} catch {
+		return false;
+	}
+}
+
 function blocks(command: string): string | undefined {
 	const segments = command.split(/&&|\|\||;|\||\n|\$\(|`/);
 	for (const seg of segments) {
@@ -129,7 +143,7 @@ export default function (pi: ExtensionAPI) {
 			name: "git_commit",
 			label: "git commit",
 			description:
-				"Commit the staged changes with a message the user approved. The author and committer are the user's global user.name and the email set for the push remote's host; repo-local identity is ignored. Messages with AI attribution are refused. The user must confirm in a dialog. Read the commit skill first.",
+				"Commit the staged changes with a message the user approved. The author and committer are the user's global user.name and the email set for the push remote's host; repo-local identity is ignored. Messages with AI attribution are refused. The user must confirm in a dialog, except on integration/* branches and on agent/* branches in a subagent worktree. Read the commit skill first.",
 			promptSnippet: "Commit staged changes after the user approves the message",
 			parameters: Type.Object({
 				message: Type.String({ description: "The full commit message: subject line, blank line, optional body." }),
@@ -145,12 +159,14 @@ export default function (pi: ExtensionAPI) {
 				const id = resolveIdentity(root);
 				const staged = git(root, ["diff", "--cached", "--stat"]).trim();
 				if (!staged) throw new Error("Nothing is staged. Stage the files the user agreed to, then call git_commit again.");
-				if (!ctx.hasUI) throw new Error("git_commit needs a user to confirm, and this session has no UI.");
-				const ok = await ctx.ui.confirm(
-					`Commit as ${id.name} <${id.email}>?`,
-					`Remote: ${id.remote} (${id.host})\n\n${message}\n\n${staged}`,
-				);
-				if (!ok) throw new Error("The user did not approve the commit. Ask what to change.");
+				if (!commitIsFree(root)) {
+					if (!ctx.hasUI) throw new Error("git_commit needs a user to confirm, and this session has no UI.");
+					const ok = await ctx.ui.confirm(
+						`Commit as ${id.name} <${id.email}>?`,
+						`Remote: ${id.remote} (${id.host})\n\n${message}\n\n${staged}`,
+					);
+					if (!ok) throw new Error("The user did not approve the commit. Ask what to change.");
+				}
 				const tmp = mkdtempSync(join(tmpdir(), "git-guard-"));
 				try {
 					const file = join(tmp, "MSG");
