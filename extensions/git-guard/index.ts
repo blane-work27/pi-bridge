@@ -199,7 +199,12 @@ export default function (pi: ExtensionAPI) {
 				const branch = tryGit(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
 				if (!branch) throw new Error("HEAD is detached. Check out a branch first.");
 				tryGit(root, ["fetch", "--quiet", id.remote]);
-				const upstream = tryGit(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`]);
+				// The upstream counts only when it is on the remote being pushed to. A branch that tracks origin/main and
+				// is pushed to a fork goes there under its own name, as a new upstream.
+				const upstream =
+					tryGit(root, ["config", `branch.${branch}.remote`]) === id.remote
+						? tryGit(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`])
+						: undefined;
 				const range = upstream ? ["HEAD", `^${upstream}`] : ["HEAD", "--not", `--remotes=${id.remote}`];
 				const log = git(root, ["log", "--format=%H%x00%an%x00%ae%x00%cn%x00%ce%x00%s", ...range]).trim();
 				if (!log) throw new Error(`There is nothing to push on ${branch}.`);
@@ -228,7 +233,7 @@ export default function (pi: ExtensionAPI) {
 				const target = upstream ? upstream : `${id.remote}/${branch} (new upstream)`;
 				const ok = await ctx.ui.confirm(`Push ${lines.length} commit(s) to ${target}?`, `As ${id.name} <${id.email}> to ${id.url}\n\n${summary.join("\n")}`);
 				if (!ok) throw new Error("The user did not approve the push.");
-				const args = upstream ? ["push", id.remote, `HEAD:${upstream.slice(id.remote.length + 1)}`] : ["push", "--set-upstream", id.remote, branch];
+				const args = upstream ? ["push", id.remote, `HEAD:${git(root, ["config", `branch.${branch}.merge`]).trim()}`] : ["push", "--set-upstream", id.remote, branch];
 				let out: string;
 				try {
 					out = git(root, args, {}, 180000);

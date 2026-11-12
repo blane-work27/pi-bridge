@@ -6,6 +6,10 @@ import sys
 
 TIERS = ("COMPLEX", "MEDIUM", "SIMPLE")
 OLLAMA_URL = "http://ollama-pi:11434"
+CHAT_NPM = "@ai-sdk/openai-compatible"
+# A gateway Responses row (ai-gateway ADR 0062): npm @ai-sdk/openai and a baseURL of exactly <gateway>/v1/<route>/v1.
+RESPONSES_NPM = "@ai-sdk/openai"
+RESPONSES_BASE_RE = re.compile(r"^https://[^/]+/v1/[a-z0-9.-]{1,64}/v1$")
 CLAUDE_SUB_LIMITS = {
     "claude-opus-5-5": (1000000, 128000),
     "claude-sonnet-5-5": (1000000, 128000),
@@ -32,9 +36,46 @@ def gateway_entry(menu, provider_id, model):
         fail(f"'{provider_id}' is not claude-sub, openai, or a provider in the gateway menu")
     if model not in (entry.get("models") or {}):
         fail(f"'{provider_id}' has no model '{model}' in the gateway menu")
-    if entry.get("npm") != "@ai-sdk/openai-compatible":
-        fail(f"'{provider_id}' uses the Responses API, which this setup does not route; pick a chat model")
+    npm = entry.get("npm")
+    if npm == RESPONSES_NPM:
+        if not RESPONSES_BASE_RE.match((entry.get("options") or {}).get("baseURL", "")):
+            fail(f"'{provider_id}' is a Responses row, but its baseURL is not <gateway>/v1/<route>/v1")
+    elif npm != CHAT_NPM:
+        fail(f"'{provider_id}' uses '{npm}', which this setup does not route")
     return entry
+
+
+def is_responses(entry):
+    return entry.get("npm") == RESPONSES_NPM
+
+
+PI_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
+
+
+def gateway_levels(entry, model):
+    """pi's thinkingLevelMap for a gateway model, from the reasoning levels its menu row lists, or None.
+
+    pi talks to Bifrost in Anthropic format, so it sends a thinking budget per level (low 2048, medium 8192,
+    high 16384 tokens) and Bifrost turns the budget into the gateway's reasoning effort. pi ignores the map's
+    values on that API except null, which removes a level: pi then uses the nearest offered one. Removing the
+    levels a row does not list matters for `off`, which Bifrost sends as effort `none`. The Gemini routes reject
+    `none` with a 400, so `off` is offered only where the row lists `off` or `none` (Qwen, the GPT-5.6
+    Responses rows), and elsewhere clamps to `low`.
+    """
+    variants = entry["models"][model].get("variants") or {}
+    if "off" not in variants and "none" in variants:
+        variants = {**variants, "off": variants["none"]}
+    levels = {}
+    for level in PI_LEVELS:
+        v = variants.get(level)
+        if v == {}:
+            levels[level] = level  # offered, with no effort of its own (GLM's max). models.json takes only strings or null.
+        elif isinstance(v, dict) and isinstance(v.get("reasoningEffort"), str):
+            levels[level] = v["reasoningEffort"]
+        else:
+            levels[level] = None
+    reasoning = any(levels[l] is not None for l in PI_LEVELS if l != "off")
+    return levels if reasoning else None
 
 
 def gateway_provider(entry, provider_id, ca_pem, key_header):
@@ -50,20 +91,20 @@ def gateway_provider(entry, provider_id, ca_pem, key_header):
         network["extra_headers"] = {key_header: "env.GATEWAY_KEY"}
     if ca_pem:
         network["ca_cert_pem"] = ca_pem
+    responses = is_responses(entry)
+    path = "/responses" if responses else "/chat/completions"
+    kind = "responses" if responses else "chat_completion"
     return {
         "keys": [{"name": f"{provider_id}-key", "value": "env.GATEWAY_KEY", "models": ["*"], "weight": 1}],
         "network_config": network,
         "custom_provider_config": {
             "base_provider_type": "openai",
-            "request_path_overrides": {
-                "chat_completion": "/chat/completions",
-                "chat_completion_stream": "/chat/completions",
-            },
+            "request_path_overrides": {kind: path, f"{kind}_stream": path},
             "allowed_requests": {
-                "chat_completion": True,
-                "chat_completion_stream": True,
-                "responses": False,
-                "responses_stream": False,
+                "chat_completion": not responses,
+                "chat_completion_stream": not responses,
+                "responses": responses,
+                "responses_stream": responses,
                 "list_models": False,
                 "count_tokens": False,
             },
@@ -162,6 +203,7 @@ def main():
     needs = set()
     limits = {}
     names = {}
+    thinking = {}  # True: claude-sub (adaptive); a dict: a gateway level map; None: no thinking
     for provider, model in every:
         if provider == "claude-sub":
             if model not in CLAUDE_SUB_LIMITS:
@@ -170,11 +212,13 @@ def main():
             needs.add("CLAUDE_SUB_KEY")
             limits[(provider, model)] = CLAUDE_SUB_LIMITS[model]
             names[(provider, model)] = f"{model} (Claude subscription)"
+            thinking[(provider, model)] = True
         elif provider == "openai":
             providers.setdefault("openai", {"keys": [{"name": "openai-key", "value": "env.OPENAI_API_KEY", "models": ["*"], "weight": 1}]})
             needs.add("OPENAI_API_KEY")
             limits[(provider, model)] = (128000, 16384)
             names[(provider, model)] = f"{model} (OpenAI)"
+            thinking[(provider, model)] = None
         else:
             entry = gateway_entry(gateway_menu(), provider, model)
             providers.setdefault(provider, gateway_provider(entry, provider, gateway_ca(), args.gateway_key_header))
@@ -182,6 +226,7 @@ def main():
             lim = (entry["models"][model].get("limit") or {})
             limits[(provider, model)] = (lim.get("context", 128000), lim.get("output", 16384))
             names[(provider, model)] = f"{entry['models'][model].get('name', model)} (gateway)"
+            thinking[(provider, model)] = gateway_levels(entry, model)
 
     provider_configs = []
     for p in providers:
@@ -293,13 +338,15 @@ def main():
         entry = {
             "id": f"{provider}/{model}",
             "name": names[(provider, model)],
-            "reasoning": provider == "claude-sub",
+            "reasoning": thinking[(provider, model)] is not None,
             "input": ["text", "image"] if provider == "claude-sub" else ["text"],
             "contextWindow": context,
             "maxTokens": output,
         }
         if provider == "claude-sub":
             entry["compat"] = {"forceAdaptiveThinking": True}
+        elif thinking[(provider, model)]:
+            entry["thinkingLevelMap"] = thinking[(provider, model)]
         pi_models.append(entry)
     pi = {
         "$schema": "https://pi.dev/schemas/models.schema.json",
