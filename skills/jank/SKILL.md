@@ -27,10 +27,9 @@ Call these from `codemode` scripts as `tools.<name>(args)`. They return objects.
 |---|---|
 | `icr-gpt56-luna/gpt-5.6-luna` | Default. Fast, reliable structured output. |
 | `icr-gpt56-terra/gpt-5.6-terra` | Harder tasks, verifiers, judges. |
-| `icr-gpt-oss-120b/gpt-oss-120b`, `icr-gemma4-31b/gemma4-31b` | A second and third opinion for verify panels. |
-| `icr-gemini-4-argon/gemini-4-argon` | Valid but slow, about 5 s per call. |
+| `icr-gemini-4-argon/gemini-4-argon` | A second model family for verify panels, so a check does not share GPT's blind spots. Also inputs too large for the others (1M-token context). Slow, about 5 s per call, so do not use it for finders or bulk work. |
 
-Do not use `icr-glm/*`, `icr-grok-47/*`, or `icr-qwen/*` with a schema. Their reasoning can use the whole output budget before they submit.
+Use only these three models for workers.
 
 ## Rules
 
@@ -49,7 +48,7 @@ Fan out and verify. Each finding gets three skeptics on three models. Keep it wh
 ```js
 const FINDINGS = {type:"object", properties:{findings:{type:"array", items:{type:"object", properties:{file:{type:"string"}, line:{type:"number"}, claim:{type:"string"}, evidence:{type:"string"}}, required:["file","line","claim","evidence"]}}}, required:["findings"]};
 const VERDICT = {type:"object", properties:{refuted:{type:"boolean"}, reason:{type:"string"}}, required:["refuted","reason"]};
-const SKEPTICS = ["icr-gpt56-terra/gpt-5.6-terra", "icr-gpt-oss-120b/gpt-oss-120b", "icr-gemma4-31b/gemma4-31b"];
+const SKEPTICS = ["icr-gpt56-terra/gpt-5.6-terra", "icr-gpt56-luna/gpt-5.6-luna", "icr-gemini-4-argon/gemini-4-argon"];
 const areas = ["src/auth", "src/billing", "src/api"];
 const per = await Promise.all(areas.map(async (area) => {
   const f = await tools.jank_worker({ label: `find-${area}`, prompt: `Find real bugs in ${area}. Read the code. Report only bugs you can point to with a file and line.`, schema: FINDINGS });

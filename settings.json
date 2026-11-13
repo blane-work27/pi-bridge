@@ -1,7 +1,7 @@
 {
   "theme": "dark",
   "defaultProvider": "bifrost",
-  "defaultModel": "claude-sub/claude-opus-5-5",
+  "defaultModel": "auto",
   "defaultThinkingLevel": "medium",
   "enableInstallTelemetry": false,
   "enableAnalytics": false,

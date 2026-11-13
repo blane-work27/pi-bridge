@@ -145,7 +145,7 @@ s["packages"] = [p for p in s.get("packages", []) if "pi-claude-bridge" not in p
 if not s["packages"]:
     s.pop("packages")
 s["defaultProvider"] = "bifrost"
-s["defaultModel"] = "claude-sub/claude-opus-5-5"
+s["defaultModel"] = "auto"
 json.dump(s, open(path, "w"), indent=2)
 open(path, "a").write("\n")
 auth = os.path.join(root, "auth.json")
@@ -174,7 +174,7 @@ json.dump(m, open(path, "w"), indent=2)
 open(path, "a").write("\n")
 EOF
 chmod 600 "$ROOT/mcp.json"
-echo "pi uses provider 'bifrost'. The default model is claude-sub/claude-opus-5-5."
+echo "pi uses provider 'bifrost'. The default model is bifrost/auto."
 echo "pi reaches the memory palace through Bifrost at /mcp/memory (mcp.json)."
 
 step "Link the pi-bridge command"
